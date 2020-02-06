@@ -4,22 +4,27 @@
 //needed for library
 #include <DNSServer.h>
 #include <ESP8266WebServer.h>
+//#include <ESPAsyncTCP.h>
+//#include <ESPAsyncWebServer.h>
 #include "WiFiManager.h"          //https://github.com/tzapu/WiFiManager
 
 #include <NTPClient.h>
-
+//#include <EEPROM.h>
 #include <Timezone.h> 
 #include <FastLED.h>
+#include <ArduinoOTA.h>
 const char* WiFi_hostname = "My-watch";
 
-#define LED_PIN     5
+
+#define LED_PIN     2
 #define NUM_LEDS    110
-
-
 
 CRGB leds[NUM_LEDS];
 int test_mode = 0;
 int brightness = 100; // Initial brightness
+int red = 100;
+int green = 100;
+int blue = 100;
 ESP8266WebServer server(80); //Server on port 80
 
 TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};     // Central European Summer Time
@@ -96,7 +101,7 @@ void closeBulbs(int low, int high){
 
 void lightBulbs(int low,int high){
   for (int i =low; i<= high; i++){
-    leds[i] = CRGB (brightness,brightness,brightness);
+    leds[i] = CRGB (red,green,blue);
   }
 }
 
@@ -247,13 +252,65 @@ void printDateTime(Timezone tz, time_t utc, const char *descr)
 
 
 void handleRoot() {
-  page = "<h4>"+String(LocalTime)+"</h4></br><h4>"+
+  
+  page = String("<!DOCTYPE html>")+
+  "<html>"+
+"<head>"+
+"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"+
+"<style>"+
+".slidecontainer {"+
+"  width: 75%;"+
+"}"+
+".slider {"+
+"  -webkit-appearance: none;"+
+"  width: 100%;"+
+"  height: 25px;"+
+"  background: #d3d3d3;"+
+"  outline: none;"+
+"  opacity: 0.7;"+
+"  -webkit-transition: .2s;"+
+"  transition: opacity .2s;"+
+"}"+
+""+
+".slider:hover {"+
+"  opacity: 1;"+
+"}"+
+""+
+".slider::-webkit-slider-thumb {"+
+"  -webkit-appearance: none;"+
+"  appearance: none;"+
+"  width: 25px;"+
+"  height: 25px;"+
+"  background: #4CAF50;"+
+"  cursor: pointer;"+
+"}"+
+".slider::-moz-range-thumb {"+
+"  width: 25px;"+
+"  height: 25px;"+
+"  background: #4CAF50;"+
+"  cursor: pointer;"+
+"}"+
+"</style>"+
+"</head>"+
+"<body>"+
+  
+  "<h4>"+String(LocalTime)+"</h4></br><h4>"+
   String(brightness)+"</h4></br>"+
   "<form action=\"/LED\" method=\"POST\">Brighness:<br><input type=\"number\" name=\"bright\" value="+brightness+"> "+
   "<input type=\"submit\"></form>"+
   "<form action=\"/TESTMODE\" method=\"POST\">TestMode:<br><input type=\"number\" name=\"testmode\" value="+test_mode+"> "+
-  "<input type=\"submit\"></form>";
-  
+  "<input type=\"submit\"></form>"+
+  "<div class=\"slidecontainer\">"+
+  "<form action=\"/CHANGE_COLOR\" method=\"POST\">"+
+  "Red: <input type=\"range\" name=\"red\" min=\"0\" max=\"255\" value="+red+" class=\"slider\" id=\"redInput\" oninput=\"redOutput.value = redInput.value\">"+
+  "<output name=\"ageOutputName\" id=\"redOutput\">"+red+"</output><p>"+
+  "Green: <input type=\"range\" name=\"green\" min=\"0\" max=\"255\" value="+green+" class=\"slider\" id=\"greenInput\" oninput=\"greenOutput.value = greenInput.value\">"+
+  "<output name=\"ageOutputName\" id=\"greenOutput\">"+green+"</output><p>"+
+  "Blue: <input type=\"range\" name=\"blue\" min=\"0\" max=\"255\" value="+blue+" class=\"slider\" id=\"blueInput\" oninput=\"blueOutput.value = blueInput.value\">"+
+  "<output name=\"ageOutputName\" id=\"blueOutput\">"+blue+"</output><p>"+
+  "<input type=\"submit\"></form>"+
+  "</div>"+
+  "</body>";
  //String s = MAIN_page; //Read HTML contents
  server.send(200, "text/html", page); //Send web page
 }
@@ -273,6 +330,22 @@ void handleLED() {
   server.sendHeader("Location","/");        // Add a header to respond with a new location for the browser to go to the home page again
   server.send(303);                         // Send it back to the browser with an HTTP status 303 (See Other) to redirect
 }
+void changeColor() {
+  red = server.arg("red").toInt();
+  green = server.arg("green").toInt();
+  blue = server.arg("blue").toInt();
+  //eepromVar1.redeeprom = red;
+  //eepromVar1.greeneeprom = green;
+  //eepromVar1.blueeeprom = blue;
+  //
+  //EEPROM.put(0, red);
+  //EEPROM.put(4, green);
+  //EEPROM.put(8, blue);
+  //EEPROM.commit();
+
+  server.sendHeader("Location","/");
+  server.send(303);
+}
 
 void configModeCallback (WiFiManager *myWiFiManager) {
   Serial.println("Entered config mode");
@@ -282,10 +355,15 @@ void configModeCallback (WiFiManager *myWiFiManager) {
 }
 
 void setup() {
+  Serial.begin(115200);
+  //EEPROM.begin(12);
+  //EEPROM.begin(sizeof(MyEEPROMStruct));
+  
 
+  // write the data to EEPROM - ignoring anything that might be there already (re-flash is guaranteed)
   
   // put your setup code here, to run once:
-  Serial.begin(9600);
+  
   FastLED.addLeds<WS2812, LED_PIN, GRB>(leds, NUM_LEDS);
   FastLED.setBrightness(brightness);
   //WiFiManager
@@ -314,19 +392,64 @@ void setup() {
   server.on("/", handleRoot);      //Which routine to handle at root location
   server.on("/LED", HTTP_POST, handleLED);
   server.on("/TESTMODE",HTTP_POST,testMode);
+  server.on("/CHANGE_COLOR",HTTP_POST,changeColor);
   server.begin();    
   
-  
+  ArduinoOTA.onStart([]() {
+    String type;
+    if (ArduinoOTA.getCommand() == U_FLASH) {
+      type = "sketch";
+    } else { // U_FS
+      type = "filesystem";
+    }
+
+    // NOTE: if updating FS this would be the place to unmount FS using FS.end()
+    Serial.println("Start updating " + type);
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nEnd");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) {
+      Serial.println("Auth Failed");
+    } else if (error == OTA_BEGIN_ERROR) {
+      Serial.println("Begin Failed");
+    } else if (error == OTA_CONNECT_ERROR) {
+      Serial.println("Connect Failed");
+    } else if (error == OTA_RECEIVE_ERROR) {
+      Serial.println("Receive Failed");
+    } else if (error == OTA_END_ERROR) {
+      Serial.println("End Failed");
+    }
+  });
+  ArduinoOTA.begin();
+  Serial.println("Ready");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
 }
 
 
 
 void loop() {
-  
+  int j;
+  //EEPROM.get(0,j);
+  //Serial.println(j);
+  //EEPROM.get(4,j);
+  //Serial.println(j);
+  //EEPROM.get(8,j);
+  //Serial.println(j);
+  //Serial.println(eepromVar2.redeeprom);
+  //Serial.println(eepromVar2.greeneeprom);
+  //Serial.println(eepromVar2.blueeeprom);
+  ArduinoOTA.handle();
   Serial.println(brightness);
-  //red = storage.red;
-  //green = storage.green;
-  //blue = storage.blue;
+  Serial.println(red);
+  Serial.println(green);
+  Serial.println(blue);
   server.handleClient();   
   timeClient.update();
   printDateTime(CE,timeClient.getEpochTime(),"Stockholm2");
