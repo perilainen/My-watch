@@ -4,8 +4,7 @@
 //needed for library
 #include <DNSServer.h>
 #include <ESP8266WebServer.h>
-//#include <ESPAsyncTCP.h>
-//#include <ESPAsyncWebServer.h>
+
 #include "WiFiManager.h"          //https://github.com/tzapu/WiFiManager
 
 #include <NTPClient.h>
@@ -13,8 +12,20 @@
 #include <Timezone.h> 
 #include <FastLED.h>
 #include <ArduinoOTA.h>
+#include <ArduinoJson.h>
+#include <FS.h>   //Include File System Headers
+
+#include <SPI.h>
 const char* WiFi_hostname = "My-watch";
 
+const char* filename = "/config.json";
+struct Config {
+  int red;
+  int green;
+  int blue;
+};
+
+Config config; 
 
 #define LED_PIN     2
 #define NUM_LEDS    110
@@ -22,10 +33,11 @@ const char* WiFi_hostname = "My-watch";
 CRGB leds[NUM_LEDS];
 int test_mode = 0;
 int brightness = 100; // Initial brightness
-int red = 100;
-int green = 100;
-int blue = 100;
+
+
 ESP8266WebServer server(80); //Server on port 80
+
+ESP8266WebServer http_rest_server(5000);
 
 TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};     // Central European Summer Time
 TimeChangeRule CET = {"CET ", Last, Sun, Oct, 3, 60};       // Central European Standard Time
@@ -41,57 +53,115 @@ String page = "";
 WiFiUDP udp;
 NTPClient timeClient(udp, ntpServerName);//, 0, 60000);
 
-int hour_low = 55;
-int hour_high = 109;
-int one_low = 63;
-int one_high = 65;
-int two_low = 55;
-int two_high = 57;
-int three_low = 66;
-int three_high = 68;
-int four_low = 73;
-int four_high = 76;
-int five_low = 85;
-int five_high = 87;
-int six_low = 77;
-int six_high = 79;
-int seven_low = 88;
-int seven_high = 90;
-int eight_low = 91;
-int eight_high = 94;
-int nine_low = 96;
-int nine_high = 98;
-int ten_low = 107;
-int ten_high = 109;
-int eleven_low = 103;
-int eleven_high = 106;
-int twelve_low = 99;
-int twelve_high = 102;
+int hour_low = 0;
+int hour_high = 54;
+int one_low = 44;
+int one_high = 46;
+int two_low = 52;
+int two_high = 54;
+int three_low = 41;
+int three_high = 43;
+int four_low = 33;
+int four_high = 36;
+int five_low = 22;
+int five_high = 24;
+int six_low = 30;
+int six_high = 32;
+int seven_low = 19;
+int seven_high = 21;
+int eight_low = 15;
+int eight_high = 18;
+int nine_low = 11;
+int nine_high = 13;
+int ten_low = 0;
+int ten_high = 2;
+int eleven_low = 3;
+int eleven_high = 6;
+int twelve_low = 7;
+int twelve_high = 10;
 
 
-int min_low = 11;
-int min_high = 54;
-int half_low = 51;
-int half_high = 54;
-int in_low = 35;
-int in_high = 35;
-int over_low = 44;
-int over_high = 47;
-int fivemin_low = 19;
-int fivemin_high = 21;
-int tenmin_low = 14;
-int tenmin_high = 15;
-int fifteenmin_low = 22;
-int fifteenmin_high = 26;
-int twentymin_low = 39;
-int twentymin_high = 43;
+int min_low = 55;
+int min_high = 98;
+int half_low = 55;
+int half_high = 58;
+int in_low = 74;
+int in_high = 74;
+int over_low = 62;
+int over_high = 65;
+int fivemin_low = 88;
+int fivemin_high = 90;
+int tenmin_low = 94;
+int tenmin_high = 96;
+int fifteenmin_low = 83;
+int fifteenmin_high = 87;
+int twentymin_low = 66;
+int twentymin_high = 70;
 
-int header_low = 0;
-int header_high = 10;
-int clock_low = 0;
-int clock_high = 6;
-int is_low = 8;
-int is_high = 9;
+int header_low = 99;
+int header_high = 109;
+int clock_low = 103;
+int clock_high = 109;
+int is_low = 100;
+int is_high = 101;
+
+void saveConfiguration(const char *filename, const Config &config) {
+  
+  File f = SPIFFS.open(filename, "w");
+
+  // Allocate the memory pool on the stack
+  // Don't forget to change the capacity to match your JSON document.
+  // Use https://arduinojson.org/assistant/ to compute the capacity.
+  StaticJsonBuffer<200> jsonBuffer;
+
+  // Parse the root object
+  JsonObject &root = jsonBuffer.createObject();
+
+  // Set the values
+  root["red"] = config.red;
+  root["green"] = config.green;
+  root["blue"] = config.blue;
+
+  // Serialize JSON to file
+  if (root.printTo(f) == 0) {
+    Serial.println(F("Failed to write to file"));
+  }
+
+  // Close the file (File's destructor doesn't close the file)
+  f.close();
+}
+
+void loadConfiguration(const char *filename){
+  
+  File f = SPIFFS.open(filename, "r");
+  
+  if (!f) {
+    delay(10000);
+    Serial.println("file open failed");
+    config.red = 100;
+    config.blue = 100;
+    config.green = 100;
+    saveConfiguration(filename,config);
+  }
+  else
+  {
+    StaticJsonBuffer<200> jsonBuffer;
+
+    const String j = f.readString();
+    Serial.println("Reading Data from File:");
+    Serial.println(j);
+
+    JsonObject& h = jsonBuffer.parse(j);
+    const int red= h["red"];
+    const int green= h["green"];
+    const int blue = h["blue"];
+    config.red = red;
+    config.green = green;
+    config.blue = blue;
+
+}
+f.close();
+}
 
 void closeBulbs(int low, int high){
   for (int i =low; i<= high; i++){
@@ -101,7 +171,7 @@ void closeBulbs(int low, int high){
 
 void lightBulbs(int low,int high){
   for (int i =low; i<= high; i++){
-    leds[i] = CRGB (red,green,blue);
+    leds[i] = CRGB (config.red,config.green,config.blue);
   }
 }
 
@@ -302,12 +372,12 @@ void handleRoot() {
   "<input type=\"submit\"></form>"+
   "<div class=\"slidecontainer\">"+
   "<form action=\"/CHANGE_COLOR\" method=\"POST\">"+
-  "Red: <input type=\"range\" name=\"red\" min=\"0\" max=\"255\" value="+red+" class=\"slider\" id=\"redInput\" oninput=\"redOutput.value = redInput.value\">"+
-  "<output name=\"ageOutputName\" id=\"redOutput\">"+red+"</output><p>"+
-  "Green: <input type=\"range\" name=\"green\" min=\"0\" max=\"255\" value="+green+" class=\"slider\" id=\"greenInput\" oninput=\"greenOutput.value = greenInput.value\">"+
-  "<output name=\"ageOutputName\" id=\"greenOutput\">"+green+"</output><p>"+
-  "Blue: <input type=\"range\" name=\"blue\" min=\"0\" max=\"255\" value="+blue+" class=\"slider\" id=\"blueInput\" oninput=\"blueOutput.value = blueInput.value\">"+
-  "<output name=\"ageOutputName\" id=\"blueOutput\">"+blue+"</output><p>"+
+  "Red: <input type=\"range\" name=\"red\" min=\"0\" max=\"255\" value="+config.red+" class=\"slider\" id=\"redInput\" oninput=\"redOutput.value = redInput.value\">"+
+  "<output name=\"ageOutputName\" id=\"redOutput\">"+config.red+"</output><p>"+
+  "Green: <input type=\"range\" name=\"green\" min=\"0\" max=\"255\" value="+config.green+" class=\"slider\" id=\"greenInput\" oninput=\"greenOutput.value = greenInput.value\">"+
+  "<output name=\"ageOutputName\" id=\"greenOutput\">"+config.green+"</output><p>"+
+  "Blue: <input type=\"range\" name=\"blue\" min=\"0\" max=\"255\" value="+config.blue+" class=\"slider\" id=\"blueInput\" oninput=\"blueOutput.value = blueInput.value\">"+
+  "<output name=\"ageOutputName\" id=\"blueOutput\">"+config.blue+"</output><p>"+
   "<input type=\"submit\"></form>"+
   "</div>"+
   "</body>";
@@ -331,17 +401,12 @@ void handleLED() {
   server.send(303);                         // Send it back to the browser with an HTTP status 303 (See Other) to redirect
 }
 void changeColor() {
-  red = server.arg("red").toInt();
-  green = server.arg("green").toInt();
-  blue = server.arg("blue").toInt();
-  //eepromVar1.redeeprom = red;
-  //eepromVar1.greeneeprom = green;
-  //eepromVar1.blueeeprom = blue;
-  //
-  //EEPROM.put(0, red);
-  //EEPROM.put(4, green);
-  //EEPROM.put(8, blue);
-  //EEPROM.commit();
+  config.red = server.arg("red").toInt();
+  config.green = server.arg("green").toInt();
+  config.blue = server.arg("blue").toInt();
+  saveConfiguration(filename,config);
+  
+  
 
   server.sendHeader("Location","/");
   server.send(303);
@@ -354,11 +419,23 @@ void configModeCallback (WiFiManager *myWiFiManager) {
   Serial.println(myWiFiManager->getConfigPortalSSID());
 }
 
+void hi(){
+  Serial.println("HI");
+}
+
+void config_rest_server_routing() {
+    http_rest_server.on("/", HTTP_GET, []() {
+        http_rest_server.send(200, "text/html",
+            "Welcome to the ESP8266 REST Web Server\n green: " +String(config.green));
+    });
+    http_rest_server.on("/leds", HTTP_GET, hi);
+    }
+
 void setup() {
   Serial.begin(115200);
   //EEPROM.begin(12);
   //EEPROM.begin(sizeof(MyEEPROMStruct));
-  
+  //EEPROM.
 
   // write the data to EEPROM - ignoring anything that might be there already (re-flash is guaranteed)
   
@@ -394,63 +471,72 @@ void setup() {
   server.on("/TESTMODE",HTTP_POST,testMode);
   server.on("/CHANGE_COLOR",HTTP_POST,changeColor);
   server.begin();    
-  
-  ArduinoOTA.onStart([]() {
-    String type;
-    if (ArduinoOTA.getCommand() == U_FLASH) {
-      type = "sketch";
-    } else { // U_FS
-      type = "filesystem";
-    }
 
-    // NOTE: if updating FS this would be the place to unmount FS using FS.end()
-    Serial.println("Start updating " + type);
-  });
-  ArduinoOTA.onEnd([]() {
-    Serial.println("\nEnd");
-  });
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-  });
-  ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) {
-      Serial.println("Auth Failed");
-    } else if (error == OTA_BEGIN_ERROR) {
-      Serial.println("Begin Failed");
-    } else if (error == OTA_CONNECT_ERROR) {
-      Serial.println("Connect Failed");
-    } else if (error == OTA_RECEIVE_ERROR) {
-      Serial.println("Receive Failed");
-    } else if (error == OTA_END_ERROR) {
-      Serial.println("End Failed");
-    }
-  });
-  ArduinoOTA.begin();
+  config_rest_server_routing();
+
+  http_rest_server.begin();
+  
+  // ArduinoOTA.onStart([]() {
+  //   String type;
+  //   if (ArduinoOTA.getCommand() == U_FLASH) {
+  //     type = "sketch";
+  //   } else { // U_FS
+  //     type = "filesystem";
+  //   }
+
+  //   // NOTE: if updating FS this would be the place to unmount FS using FS.end()
+  //   Serial.println("Start updating " + type);
+  // });
+  // ArduinoOTA.onEnd([]() {
+  //   Serial.println("\nEnd");
+  // });
+  // ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+  //   Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  // });
+  // ArduinoOTA.onError([](ota_error_t error) {
+  //   Serial.printf("Error[%u]: ", error);
+  //   if (error == OTA_AUTH_ERROR) {
+  //     Serial.println("Auth Failed");
+  //   } else if (error == OTA_BEGIN_ERROR) {
+  //     Serial.println("Begin Failed");
+  //   } else if (error == OTA_CONNECT_ERROR) {
+  //     Serial.println("Connect Failed");
+  //   } else if (error == OTA_RECEIVE_ERROR) {
+  //     Serial.println("Receive Failed");
+  //   } else if (error == OTA_END_ERROR) {
+  //     Serial.println("End Failed");
+  //   }
+  // });
+  // ArduinoOTA.begin();
   Serial.println("Ready");
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
+  //Initialize File System
+  delay(1000);
+  
+  if(SPIFFS.begin())
+  {
+    Serial.println("SPIFFS Initialize....ok");
+  }
+  else
+  {
+    Serial.println("SPIFFS Initialization...failed");
+  }
+  delay(1000);
+  loadConfiguration(filename);
 }
 
 
 
 void loop() {
-  int j;
-  //EEPROM.get(0,j);
-  //Serial.println(j);
-  //EEPROM.get(4,j);
-  //Serial.println(j);
-  //EEPROM.get(8,j);
-  //Serial.println(j);
-  //Serial.println(eepromVar2.redeeprom);
-  //Serial.println(eepromVar2.greeneeprom);
-  //Serial.println(eepromVar2.blueeeprom);
-  ArduinoOTA.handle();
+  
+  //ArduinoOTA.handle();
   Serial.println(brightness);
-  Serial.println(red);
-  Serial.println(green);
-  Serial.println(blue);
-  server.handleClient();   
+  Serial.println(config.red);
+  Serial.println(config.green);
+  Serial.println(config.blue);
+  server.handleClient();  
+  http_rest_server.handleClient(); 
   timeClient.update();
   printDateTime(CE,timeClient.getEpochTime(),"Stockholm2");
   if (test_mode == 1){
@@ -462,4 +548,5 @@ void loop() {
   
   
   Serial.println("Loop finished");  
+  
 }
